@@ -648,7 +648,7 @@ static NSTimeInterval const PaceSampleRetentionSeconds = 48.0 * 60.0 * 60.0;
 
     NSTask *task = [[NSTask alloc] init];
     task.executableURL = [NSURL fileURLWithPath:codexPath];
-    task.arguments = @[@"app-server", @"proxy"];
+    task.arguments = @[@"app-server", @"--stdio"];
 
     NSPipe *stdinPipe = [NSPipe pipe];
     NSPipe *stdoutPipe = [NSPipe pipe];
@@ -657,36 +657,89 @@ static NSTimeInterval const PaceSampleRetentionSeconds = 48.0 * 60.0 * 60.0;
     task.standardOutput = stdoutPipe;
     task.standardError = stderrPipe;
 
+    NSMutableData *outputData = [NSMutableData data];
+    NSMutableData *errorData = [NSMutableData data];
+    dispatch_semaphore_t responseReady = dispatch_semaphore_create(0);
+
+    stdoutPipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *handle) {
+        NSData *chunk = [handle availableData];
+        if (chunk.length == 0) {
+            return;
+        }
+        @synchronized (outputData) {
+            [outputData appendData:chunk];
+            if ([self jsonRPCResponseWithId:@"codex-usage-menu-bar" fromData:outputData] != nil) {
+                dispatch_semaphore_signal(responseReady);
+            }
+        }
+    };
+    stderrPipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *handle) {
+        NSData *chunk = [handle availableData];
+        if (chunk.length == 0) {
+            return;
+        }
+        @synchronized (errorData) {
+            [errorData appendData:chunk];
+        }
+    };
+
     @try {
         [task launch];
+        NSDictionary *initialize = @{
+            @"id": @"codex-usage-menu-bar-init",
+            @"method": @"initialize",
+            @"params": @{
+                @"clientInfo": @{
+                    @"name": @"codex-usage-menu-bar",
+                    @"version": NSBundle.mainBundle.infoDictionary[@"CFBundleShortVersionString"] ?: @"0.1.0"
+                },
+                @"capabilities": @{
+                    @"experimentalApi": @YES
+                }
+            }
+        };
         NSDictionary *request = @{
             @"id": @"codex-usage-menu-bar",
             @"method": @"account/rateLimits/read",
             @"params": [NSNull null]
         };
+        NSData *initializeData = [NSJSONSerialization dataWithJSONObject:initialize options:0 error:nil];
         NSData *requestData = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
+        if (initializeData != nil) {
+            [[stdinPipe fileHandleForWriting] writeData:initializeData];
+            [[stdinPipe fileHandleForWriting] writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
+        }
         if (requestData != nil) {
             [[stdinPipe fileHandleForWriting] writeData:requestData];
             [[stdinPipe fileHandleForWriting] writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
         }
-        [[stdinPipe fileHandleForWriting] closeFile];
     } @catch (NSException *exception) {
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil;
+        stderrPipe.fileHandleForReading.readabilityHandler = nil;
         return @{
             @"ok": @NO,
-            @"error": [NSString stringWithFormat:@"Could not start Codex app-server proxy: %@", exception.reason ?: @"unknown"]
+            @"error": [NSString stringWithFormat:@"Could not start Codex app-server: %@", exception.reason ?: @"unknown"]
         };
     }
 
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2.5];
-    while (task.isRunning && [deadline timeIntervalSinceNow] > 0) {
-        [NSThread sleepForTimeInterval:0.03];
-    }
+    long waitResult = dispatch_semaphore_wait(responseReady, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8.0 * NSEC_PER_SEC)));
+    stdoutPipe.fileHandleForReading.readabilityHandler = nil;
+    stderrPipe.fileHandleForReading.readabilityHandler = nil;
+
+    [[stdinPipe fileHandleForWriting] closeFile];
     if (task.isRunning) {
         [task terminate];
+        [task waitUntilExit];
+    }
+
+    if (waitResult != 0) {
         return @{@"ok": @NO, @"error": @"Codex app-server request timed out"};
     }
 
-    NSData *data = [[stdoutPipe fileHandleForReading] readDataToEndOfFile];
+    NSData *data = nil;
+    @synchronized (outputData) {
+        data = [outputData copy];
+    }
     NSDictionary *response = [self jsonRPCResponseWithId:@"codex-usage-menu-bar" fromData:data];
     NSDictionary *result = [response[@"result"] isKindOfClass:[NSDictionary class]] ? response[@"result"] : nil;
     if (result != nil) {
@@ -698,8 +751,11 @@ static NSTimeInterval const PaceSampleRetentionSeconds = 48.0 * 60.0 * 60.0;
         }
     }
 
-    NSData *errorData = [[stderrPipe fileHandleForReading] readDataToEndOfFile];
-    NSString *stderrText = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+    NSData *capturedErrorData = nil;
+    @synchronized (errorData) {
+        capturedErrorData = [errorData copy];
+    }
+    NSString *stderrText = [[NSString alloc] initWithData:capturedErrorData encoding:NSUTF8StringEncoding];
     NSString *message = stderrText.length > 0 ? [stderrText stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] : @"Codex app-server returned invalid JSON";
 
     return @{
