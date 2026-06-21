@@ -2,6 +2,8 @@
 
 Small macOS menu-bar utility that shows the latest Codex 5h usage-limit percentage next to the clock.
 
+![Codex Usage Menu Bar preview](assets/menu-bar-preview.png)
+
 It reads local Codex session events from `~/.codex/sessions`. No network call or API key is used.
 
 Click the menu-bar item to choose:
