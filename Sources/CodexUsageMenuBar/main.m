@@ -7,6 +7,9 @@ static NSString * const DisplayModeBattery = @"battery";
 static NSString * const TimeModeKey = @"timeMode";
 static NSString * const TimeModeClock = @"clock";
 static NSString * const TimeModeCountdown = @"countdown";
+static NSString * const MetricModeKey = @"metricMode";
+static NSString * const MetricModeLeft = @"left";
+static NSString * const MetricModeUsed = @"used";
 
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSMenuDelegate>
 @property(nonatomic, strong) NSStatusItem *statusItem;
@@ -24,7 +27,8 @@ static NSString * const TimeModeCountdown = @"countdown";
 
     [NSUserDefaults.standardUserDefaults registerDefaults:@{
         DisplayModeKey: DisplayModePercent,
-        TimeModeKey: TimeModeClock
+        TimeModeKey: TimeModeClock,
+        MetricModeKey: MetricModeLeft
     }];
 
     self.codexIcon = [self codexMenuBarIcon];
@@ -157,6 +161,16 @@ static NSString * const TimeModeCountdown = @"countdown";
                       toMenu:menu];
 
     [menu addItem:[NSMenuItem separatorItem]];
+    [self addChoiceWithTitle:@"Show % Left"
+                      action:@selector(useLeftMetric)
+                     checked:[[self metricMode] isEqualToString:MetricModeLeft]
+                      toMenu:menu];
+    [self addChoiceWithTitle:@"Show % Used"
+                      action:@selector(useUsedMetric)
+                     checked:[[self metricMode] isEqualToString:MetricModeUsed]
+                      toMenu:menu];
+
+    [menu addItem:[NSMenuItem separatorItem]];
     [self addChoiceWithTitle:@"Show Reset Time"
                       action:@selector(useClockTime)
                      checked:[[self timeMode] isEqualToString:TimeModeClock]
@@ -208,20 +222,20 @@ static NSString * const TimeModeCountdown = @"countdown";
         return;
     }
 
-    double used = [self usagePercentForState:state];
+    double metric = [self displayPercentForState:state];
     NSString *timeText = [self timeTextForState:state];
 
     if ([[self displayMode] isEqualToString:DisplayModeBattery]) {
-        self.statusItem.button.image = [self batteryIconForPercent:used];
+        self.statusItem.button.image = [self batteryIconForPercent:metric];
         self.statusItem.button.title = timeText;
         return;
     }
 
     self.statusItem.button.image = self.codexIcon;
-    if (isnan(used)) {
+    if (isnan(metric)) {
         self.statusItem.button.title = timeText.length > 0 ? timeText : @"--";
     } else {
-        self.statusItem.button.title = [NSString stringWithFormat:@"%@ | %.0f%%", timeText, used];
+        self.statusItem.button.title = [NSString stringWithFormat:@"%@ | %.0f%% %@", timeText, metric, [self metricLabel]];
     }
 }
 
@@ -230,7 +244,8 @@ static NSString * const TimeModeCountdown = @"countdown";
     if (isnan(used)) {
         return @"Codex usage: unavailable";
     }
-    return [NSString stringWithFormat:@"Codex usage: %.0f%%", used];
+    double left = MAX(0.0, MIN(100.0, 100.0 - used));
+    return [NSString stringWithFormat:@"Codex: %.0f%% left, %.0f%% used", left, used];
 }
 
 - (NSString *)resetClockDetailForState:(NSDictionary *)state {
@@ -252,9 +267,27 @@ static NSString * const TimeModeCountdown = @"countdown";
 - (double)usagePercentForState:(NSDictionary *)state {
     id value = state[@"primary_used_percent"];
     if ([value respondsToSelector:@selector(doubleValue)]) {
-        return [value doubleValue];
+        return MAX(0.0, MIN(100.0, [value doubleValue]));
     }
     return NAN;
+}
+
+- (double)displayPercentForState:(NSDictionary *)state {
+    double used = [self usagePercentForState:state];
+    if (isnan(used)) {
+        return NAN;
+    }
+    if ([[self metricMode] isEqualToString:MetricModeUsed]) {
+        return used;
+    }
+    return MAX(0.0, MIN(100.0, 100.0 - used));
+}
+
+- (NSString *)metricLabel {
+    if ([[self metricMode] isEqualToString:MetricModeUsed]) {
+        return @"used";
+    }
+    return @"left";
 }
 
 - (NSNumber *)resetSecondsForState:(NSDictionary *)state {
@@ -308,6 +341,11 @@ static NSString * const TimeModeCountdown = @"countdown";
     return mode.length > 0 ? mode : TimeModeClock;
 }
 
+- (NSString *)metricMode {
+    NSString *mode = [NSUserDefaults.standardUserDefaults stringForKey:MetricModeKey];
+    return mode.length > 0 ? mode : MetricModeLeft;
+}
+
 - (void)usePercentDisplay {
     [NSUserDefaults.standardUserDefaults setObject:DisplayModePercent forKey:DisplayModeKey];
     [self updateStatusItem];
@@ -328,6 +366,18 @@ static NSString * const TimeModeCountdown = @"countdown";
 
 - (void)useCountdownTime {
     [NSUserDefaults.standardUserDefaults setObject:TimeModeCountdown forKey:TimeModeKey];
+    [self updateStatusItem];
+    self.statusItem.menu = [self menuForCurrentState];
+}
+
+- (void)useLeftMetric {
+    [NSUserDefaults.standardUserDefaults setObject:MetricModeLeft forKey:MetricModeKey];
+    [self updateStatusItem];
+    self.statusItem.menu = [self menuForCurrentState];
+}
+
+- (void)useUsedMetric {
+    [NSUserDefaults.standardUserDefaults setObject:MetricModeUsed forKey:MetricModeKey];
     [self updateStatusItem];
     self.statusItem.menu = [self menuForCurrentState];
 }

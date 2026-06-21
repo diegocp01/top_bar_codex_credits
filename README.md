@@ -12,6 +12,7 @@ It reads local Codex session events from `~/.codex/sessions`. No network call or
 Click the menu-bar item to choose:
 
 - Percentage or battery display.
+- Percentage left or percentage used. The default is percentage left.
 - Reset clock time or a live countdown to reset.
 
 Codex usage logs are polled every 5 minutes. Countdown mode updates locally every second.
