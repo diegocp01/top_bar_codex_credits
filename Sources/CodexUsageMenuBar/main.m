@@ -10,6 +10,8 @@ static NSString * const TimeModeCountdown = @"countdown";
 static NSString * const MetricModeKey = @"metricMode";
 static NSString * const MetricModeLeft = @"left";
 static NSString * const MetricModeUsed = @"used";
+static NSString * const RefreshIntervalKey = @"refreshIntervalSeconds";
+static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSMenuDelegate>
 @property(nonatomic, strong) NSStatusItem *statusItem;
@@ -28,7 +30,8 @@ static NSString * const MetricModeUsed = @"used";
     [NSUserDefaults.standardUserDefaults registerDefaults:@{
         DisplayModeKey: DisplayModePercent,
         TimeModeKey: TimeModeClock,
-        MetricModeKey: MetricModeLeft
+        MetricModeKey: MetricModeLeft,
+        RefreshIntervalKey: @(DefaultRefreshIntervalSeconds)
     }];
 
     self.codexIcon = [self codexMenuBarIcon];
@@ -41,11 +44,7 @@ static NSString * const MetricModeUsed = @"used";
     self.statusItem.menu = [self menuForCurrentState];
 
     [self refresh];
-    self.pollTimer = [NSTimer scheduledTimerWithTimeInterval:300.0
-                                                      target:self
-                                                    selector:@selector(refresh)
-                                                    userInfo:nil
-                                                     repeats:YES];
+    [self schedulePollTimer];
     self.displayTimer = [NSTimer scheduledTimerWithTimeInterval:1.0
                                                          target:self
                                                        selector:@selector(updateStatusItem)
@@ -180,6 +179,9 @@ static NSString * const MetricModeUsed = @"used";
                      checked:[[self timeMode] isEqualToString:TimeModeCountdown]
                       toMenu:menu];
 
+    [menu addItem:[NSMenuItem separatorItem]];
+    [self addRefreshIntervalSubmenuToMenu:menu];
+
     [self addActionsToMenu:menu];
     return menu;
 }
@@ -205,6 +207,30 @@ static NSString * const MetricModeUsed = @"used";
     item.target = self;
     item.state = checked ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:item];
+}
+
+- (void)addRefreshIntervalSubmenuToMenu:(NSMenu *)menu {
+    NSTimeInterval current = [self refreshIntervalSeconds];
+    NSMenuItem *root = [[NSMenuItem alloc] initWithTitle:[NSString stringWithFormat:@"Refresh Every: %@",
+                                                          [self refreshIntervalLabelForSeconds:current]]
+                                                  action:nil
+                                           keyEquivalent:@""];
+    NSMenu *submenu = [[NSMenu alloc] initWithTitle:@"Refresh Every"];
+    NSArray<NSNumber *> *intervals = @[@30.0, @60.0, @180.0, @300.0];
+
+    for (NSNumber *interval in intervals) {
+        NSTimeInterval seconds = interval.doubleValue;
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:[self refreshIntervalLabelForSeconds:seconds]
+                                                      action:@selector(useRefreshInterval:)
+                                               keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = interval;
+        item.state = fabs(seconds - current) < 0.5 ? NSControlStateValueOn : NSControlStateValueOff;
+        [submenu addItem:item];
+    }
+
+    root.submenu = submenu;
+    [menu addItem:root];
 }
 
 - (void)addDisabledItem:(NSString *)title toMenu:(NSMenu *)menu {
@@ -351,6 +377,25 @@ static NSString * const MetricModeUsed = @"used";
     return mode.length > 0 ? mode : MetricModeLeft;
 }
 
+- (NSTimeInterval)refreshIntervalSeconds {
+    NSTimeInterval seconds = [NSUserDefaults.standardUserDefaults doubleForKey:RefreshIntervalKey];
+    NSArray<NSNumber *> *allowed = @[@30.0, @60.0, @180.0, @300.0];
+    for (NSNumber *interval in allowed) {
+        if (fabs(seconds - interval.doubleValue) < 0.5) {
+            return interval.doubleValue;
+        }
+    }
+    return DefaultRefreshIntervalSeconds;
+}
+
+- (NSString *)refreshIntervalLabelForSeconds:(NSTimeInterval)seconds {
+    if (fabs(seconds - 30.0) < 0.5) {
+        return @"30 sec";
+    }
+    NSInteger minutes = (NSInteger)llround(seconds / 60.0);
+    return [NSString stringWithFormat:@"%ld min", (long)minutes];
+}
+
 - (void)usePercentDisplay {
     [NSUserDefaults.standardUserDefaults setObject:DisplayModePercent forKey:DisplayModeKey];
     [self updateStatusItem];
@@ -385,6 +430,26 @@ static NSString * const MetricModeUsed = @"used";
     [NSUserDefaults.standardUserDefaults setObject:MetricModeUsed forKey:MetricModeKey];
     [self updateStatusItem];
     self.statusItem.menu = [self menuForCurrentState];
+}
+
+- (void)useRefreshInterval:(NSMenuItem *)sender {
+    NSNumber *interval = sender.representedObject;
+    if (![interval respondsToSelector:@selector(doubleValue)]) {
+        return;
+    }
+
+    [NSUserDefaults.standardUserDefaults setDouble:interval.doubleValue forKey:RefreshIntervalKey];
+    [self schedulePollTimer];
+    self.statusItem.menu = [self menuForCurrentState];
+}
+
+- (void)schedulePollTimer {
+    [self.pollTimer invalidate];
+    self.pollTimer = [NSTimer scheduledTimerWithTimeInterval:[self refreshIntervalSeconds]
+                                                      target:self
+                                                    selector:@selector(refresh)
+                                                    userInfo:nil
+                                                     repeats:YES];
 }
 
 - (void)refresh {

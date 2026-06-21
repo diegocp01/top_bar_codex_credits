@@ -14,8 +14,9 @@ Click the menu-bar item to choose:
 - Percentage or battery display.
 - Percentage left or percentage used. The default is percentage left.
 - Reset clock time or a live countdown to reset.
+- Refresh interval: 30 seconds, 1 minute, 3 minutes, or 5 minutes.
 
-Codex usage logs are polled every 5 minutes. Countdown mode updates locally every second.
+Codex usage logs are polled every 5 minutes by default. Countdown mode updates locally every second.
 
 ## Run
 
