@@ -21,9 +21,14 @@ Click the menu-bar item to choose:
 
 ## Install
 
-Download the signed and notarized `.app` from the GitHub Release, move it to `/Applications`, and open it once.
+No notarized GitHub Release has been published yet. For now, build the local `.app`:
 
-Or install with Homebrew:
+```sh
+./scripts/build.sh
+open ".build/release/Codex Usage Menu Bar.app"
+```
+
+After a signed and notarized GitHub Release is published, it can be installed by downloading the release `.app` or with Homebrew:
 
 ```sh
 brew tap diegocp01/top_bar_codex_credits https://github.com/diegocp01/top_bar_codex_credits
@@ -39,7 +44,7 @@ Use the app menu item **Launch at Login** to start it automatically. The app doe
 open ".build/release/Codex Usage Menu Bar.app"
 ```
 
-The build script produces a universal Apple Silicon/Intel `.app` bundle and ad-hoc signs it for local use.
+The build script produces a universal Apple Silicon/Intel `.app` bundle and ad-hoc signs it for local use. This local build is not notarized.
 
 ## Release
 
