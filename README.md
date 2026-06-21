@@ -2,7 +2,10 @@
 
 Small macOS menu-bar utility that shows the latest Codex 5h usage-limit percentage next to the clock.
 
-![Codex Usage Menu Bar preview](assets/menu-bar-preview.png)
+<p>
+  <img src="assets/menu-bar-preview.png" alt="Codex Usage Menu Bar countdown preview" width="284">
+  <img src="assets/menu-bar-battery-preview.png" alt="Codex Usage Menu Bar battery preview" width="282">
+</p>
 
 It reads local Codex session events from `~/.codex/sessions`. No network call or API key is used.
 
