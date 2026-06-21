@@ -235,7 +235,12 @@ static NSString * const MetricModeUsed = @"used";
     if (isnan(metric)) {
         self.statusItem.button.title = timeText.length > 0 ? timeText : @"--";
     } else {
-        self.statusItem.button.title = [NSString stringWithFormat:@"%@ | %.0f%% %@", timeText, metric, [self metricLabel]];
+        NSString *metricLabel = [self metricLabel];
+        if (metricLabel.length > 0) {
+            self.statusItem.button.title = [NSString stringWithFormat:@"%@ | %.0f%% %@", timeText, metric, metricLabel];
+        } else {
+            self.statusItem.button.title = [NSString stringWithFormat:@"%@ | %.0f%%", timeText, metric];
+        }
     }
 }
 
@@ -287,7 +292,7 @@ static NSString * const MetricModeUsed = @"used";
     if ([[self metricMode] isEqualToString:MetricModeUsed]) {
         return @"used";
     }
-    return @"left";
+    return @"";
 }
 
 - (NSNumber *)resetSecondsForState:(NSDictionary *)state {
