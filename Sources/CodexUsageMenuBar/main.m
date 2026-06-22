@@ -12,10 +12,7 @@ static NSString * const MetricModeKey = @"metricMode";
 static NSString * const MetricModeLeft = @"left";
 static NSString * const MetricModeUsed = @"used";
 static NSString * const RefreshIntervalKey = @"refreshIntervalSeconds";
-static NSString * const PaceSamplesKey = @"paceSamples";
 static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
-static NSTimeInterval const PaceBaselineSeconds = 60.0 * 60.0;
-static NSTimeInterval const PaceSampleRetentionSeconds = 48.0 * 60.0 * 60.0;
 
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSMenuDelegate>
 @property(nonatomic, strong) NSStatusItem *statusItem;
@@ -134,7 +131,6 @@ static NSTimeInterval const PaceSampleRetentionSeconds = 48.0 * 60.0 * 60.0;
     [self addDisabledItem:[self detailUsageTextForState:state] toMenu:menu];
     [self addDisabledItem:[self resetClockDetailForState:state] toMenu:menu];
     [self addDisabledItem:[self countdownDetailForState:state] toMenu:menu];
-    [self addDisabledItem:[self paceDetailForState:state] toMenu:menu];
 
     if ([state[@"credits_summary"] isKindOfClass:[NSString class]]) {
         [self addDisabledItem:state[@"credits_summary"] toMenu:menu];
@@ -323,63 +319,12 @@ static NSTimeInterval const PaceSampleRetentionSeconds = 48.0 * 60.0 * 60.0;
     return [NSString stringWithFormat:@"Countdown: %@", countdown];
 }
 
-- (NSString *)paceDetailForState:(NSDictionary *)state {
-    NSNumber *currentUsed = [self currentUsedPercentForState:state];
-    if (currentUsed == nil) {
-        return @"Current pace       unknown";
-    }
-
-    NSArray<NSDictionary *> *samples = [self paceSamples];
-    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
-    NSNumber *currentReset = [self resetSecondsForState:state];
-    NSDictionary *baseline = nil;
-
-    for (NSDictionary *sample in samples) {
-        NSNumber *timestamp = [self numberFromDictionary:sample keys:@[@"timestamp"]];
-        NSNumber *used = [self numberFromDictionary:sample keys:@[@"usedPercent"]];
-        if (timestamp == nil || used == nil) {
-            continue;
-        }
-        if (now - timestamp.doubleValue < PaceBaselineSeconds) {
-            continue;
-        }
-
-        NSNumber *sampleReset = [self numberFromDictionary:sample keys:@[@"resetAt"]];
-        if (currentReset != nil && sampleReset != nil && fabs(currentReset.doubleValue - sampleReset.doubleValue) > 1.0) {
-            continue;
-        }
-        if (currentUsed.doubleValue < used.doubleValue) {
-            continue;
-        }
-
-        baseline = sample;
-    }
-
-    if (baseline == nil) {
-        return @"Current pace       [waiting for the first 60min of data]";
-    }
-
-    NSNumber *baselineTimestamp = [self numberFromDictionary:baseline keys:@[@"timestamp"]];
-    NSNumber *baselineUsed = [self numberFromDictionary:baseline keys:@[@"usedPercent"]];
-    double hours = MAX((now - baselineTimestamp.doubleValue) / 3600.0, 1.0);
-    double pace = (currentUsed.doubleValue - baselineUsed.doubleValue) / hours;
-    return [NSString stringWithFormat:@"Current pace       %.1f%% per hour", pace];
-}
-
 - (double)usagePercentForState:(NSDictionary *)state {
     id value = state[@"primary_used_percent"];
     if ([value respondsToSelector:@selector(doubleValue)]) {
         return MAX(0.0, MIN(100.0, [value doubleValue]));
     }
     return NAN;
-}
-
-- (NSNumber *)currentUsedPercentForState:(NSDictionary *)state {
-    id value = state[@"primary_used_percent"];
-    if ([value respondsToSelector:@selector(doubleValue)]) {
-        return @(MAX(0.0, MIN(100.0, [value doubleValue])));
-    }
-    return nil;
 }
 
 - (double)displayPercentForState:(NSDictionary *)state {
@@ -536,78 +481,10 @@ static NSTimeInterval const PaceSampleRetentionSeconds = 48.0 * 60.0 * 60.0;
         NSDictionary *state = [self loadUsageState];
         dispatch_async(dispatch_get_main_queue(), ^{
             self.latestState = state;
-            [self recordPaceSampleForState:state];
             [self updateStatusItem];
             self.statusItem.menu = [self menuForCurrentState];
         });
     });
-}
-
-- (void)recordPaceSampleForState:(NSDictionary *)state {
-    NSNumber *ok = state[@"ok"];
-    if (![ok respondsToSelector:@selector(boolValue)] || !ok.boolValue) {
-        return;
-    }
-
-    NSNumber *used = [self currentUsedPercentForState:state];
-    if (used == nil) {
-        return;
-    }
-
-    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
-    NSMutableArray<NSDictionary *> *samples = [[self paceSamples] mutableCopy];
-    NSDictionary *last = samples.lastObject;
-    NSNumber *lastTimestamp = [self numberFromDictionary:last keys:@[@"timestamp"]];
-    if (lastTimestamp != nil && now - lastTimestamp.doubleValue < 30.0) {
-        [samples removeLastObject];
-    }
-
-    NSMutableDictionary *sample = [@{
-        @"timestamp": @(now),
-        @"usedPercent": used
-    } mutableCopy];
-    NSNumber *reset = [self resetSecondsForState:state];
-    if (reset != nil) {
-        sample[@"resetAt"] = reset;
-    }
-    [samples addObject:sample];
-
-    NSTimeInterval cutoff = now - PaceSampleRetentionSeconds;
-    NSMutableArray<NSDictionary *> *kept = [NSMutableArray array];
-    for (NSDictionary *entry in samples) {
-        NSNumber *timestamp = [self numberFromDictionary:entry keys:@[@"timestamp"]];
-        if (timestamp != nil && timestamp.doubleValue >= cutoff) {
-            [kept addObject:entry];
-        }
-    }
-
-    [NSUserDefaults.standardUserDefaults setObject:kept forKey:PaceSamplesKey];
-}
-
-- (NSArray<NSDictionary *> *)paceSamples {
-    NSArray *stored = [NSUserDefaults.standardUserDefaults arrayForKey:PaceSamplesKey];
-    if (![stored isKindOfClass:[NSArray class]]) {
-        return @[];
-    }
-
-    NSMutableArray<NSDictionary *> *samples = [NSMutableArray array];
-    for (id entry in stored) {
-        if (![entry isKindOfClass:[NSDictionary class]]) {
-            continue;
-        }
-        NSNumber *timestamp = [self numberFromDictionary:entry keys:@[@"timestamp"]];
-        NSNumber *used = [self numberFromDictionary:entry keys:@[@"usedPercent"]];
-        if (timestamp != nil && used != nil) {
-            [samples addObject:entry];
-        }
-    }
-
-    [samples sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
-        NSNumber *leftTimestamp = [self numberFromDictionary:left keys:@[@"timestamp"]];
-        NSNumber *rightTimestamp = [self numberFromDictionary:right keys:@[@"timestamp"]];
-        return [leftTimestamp compare:rightTimestamp];
-    }];
-    return samples;
 }
 
 - (NSDictionary *)loadUsageState {
