@@ -970,7 +970,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 
     NSNumber *used = [self numberFromDictionary:window keys:appServerKeys ? @[@"usedPercent"] : @[@"used_percent"]];
     NSNumber *reset = [self numberFromDictionary:window keys:appServerKeys ? @[@"resetsAt"] : @[@"resets_at"]];
-    NSString *usedText = used != nil ? [NSString stringWithFormat:@"%.0f%% used", used.doubleValue] : @"--% used";
+    NSString *usedText = [self percentSummaryTextForUsedPercent:used];
     NSString *resetText = [self resetLabelForSeconds:reset includeDate:NO];
     return [NSString stringWithFormat:@"%@: %@, resets %@", label ?: @"Codex", usedText, resetText];
 }
@@ -982,9 +982,23 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 
     NSNumber *used = [self numberFromDictionary:window keys:appServerKeys ? @[@"usedPercent"] : @[@"used_percent"]];
     NSNumber *reset = [self numberFromDictionary:window keys:appServerKeys ? @[@"resetsAt"] : @[@"resets_at"]];
-    NSString *usedText = used != nil ? [NSString stringWithFormat:@"%.0f%% used", used.doubleValue] : @"--% used";
+    NSString *usedText = [self percentSummaryTextForUsedPercent:used];
     NSString *resetText = [self resetLabelForSeconds:reset includeDate:YES];
     return [NSString stringWithFormat:@"Weekly: %@, resets %@", usedText, resetText];
+}
+
+- (NSString *)percentSummaryTextForUsedPercent:(NSNumber *)used {
+    if (used == nil) {
+        return [[self metricMode] isEqualToString:MetricModeUsed] ? @"--% used" : @"--% left";
+    }
+
+    double usedValue = MAX(0.0, MIN(100.0, used.doubleValue));
+    if ([[self metricMode] isEqualToString:MetricModeUsed]) {
+        return [NSString stringWithFormat:@"%.0f%% used", usedValue];
+    }
+
+    double leftValue = MAX(0.0, MIN(100.0, 100.0 - usedValue));
+    return [NSString stringWithFormat:@"%.0f%% left, %.0f%% used", leftValue, usedValue];
 }
 
 - (NSString *)windowLabelForWindow:(NSDictionary *)window appServerKeys:(BOOL)appServerKeys {
