@@ -11,6 +11,9 @@ static NSString * const TimeModeCountdown = @"countdown";
 static NSString * const MetricModeKey = @"metricMode";
 static NSString * const MetricModeLeft = @"left";
 static NSString * const MetricModeUsed = @"used";
+static NSString * const WidgetWindowModeKey = @"widgetWindowMode";
+static NSString * const WidgetWindowDaily = @"daily";
+static NSString * const WidgetWindowWeekly = @"weekly";
 static NSString * const RefreshIntervalKey = @"refreshIntervalSeconds";
 static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 
@@ -33,6 +36,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         DisplayModeKey: DisplayModePercent,
         TimeModeKey: TimeModeClock,
         MetricModeKey: MetricModeLeft,
+        WidgetWindowModeKey: WidgetWindowDaily,
         RefreshIntervalKey: @(DefaultRefreshIntervalSeconds)
     }];
 
@@ -191,6 +195,16 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
                       toMenu:menu];
 
     [menu addItem:[NSMenuItem separatorItem]];
+    [self addChoiceWithTitle:@"Widget: Daily"
+                      action:@selector(useDailyWidgetWindow)
+                     checked:[[self widgetWindowMode] isEqualToString:WidgetWindowDaily]
+                      toMenu:menu];
+    [self addChoiceWithTitle:@"Widget: Weekly"
+                      action:@selector(useWeeklyWidgetWindow)
+                     checked:[[self widgetWindowMode] isEqualToString:WidgetWindowWeekly]
+                      toMenu:menu];
+
+    [menu addItem:[NSMenuItem separatorItem]];
     [self addChoiceWithTitle:@"Show Reset Time"
                       action:@selector(useClockTime)
                      checked:[[self timeMode] isEqualToString:TimeModeClock]
@@ -275,8 +289,8 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         return;
     }
 
-    double metric = [self displayPercentForState:state];
-    NSString *timeText = [self timeTextForState:state];
+    double metric = [self displayPercentForWidgetState:state];
+    NSString *timeText = [self timeTextForWidgetState:state];
 
     if ([[self displayMode] isEqualToString:DisplayModeBattery]) {
         self.statusItem.button.image = [self batteryIconForPercent:metric];
@@ -341,6 +355,28 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     return MAX(0.0, MIN(100.0, 100.0 - used));
 }
 
+- (double)displayPercentForWidgetState:(NSDictionary *)state {
+    double used = [self widgetUsagePercentForState:state];
+    if (isnan(used)) {
+        return NAN;
+    }
+    if ([[self metricMode] isEqualToString:MetricModeUsed]) {
+        return used;
+    }
+    return MAX(0.0, MIN(100.0, 100.0 - used));
+}
+
+- (double)widgetUsagePercentForState:(NSDictionary *)state {
+    id value = [[self widgetWindowMode] isEqualToString:WidgetWindowWeekly] ? state[@"secondary_used_percent"] : state[@"primary_used_percent"];
+    if (![value respondsToSelector:@selector(doubleValue)] && [[self widgetWindowMode] isEqualToString:WidgetWindowWeekly]) {
+        value = state[@"primary_used_percent"];
+    }
+    if ([value respondsToSelector:@selector(doubleValue)]) {
+        return MAX(0.0, MIN(100.0, [value doubleValue]));
+    }
+    return NAN;
+}
+
 - (NSString *)metricLabel {
     if ([[self metricMode] isEqualToString:MetricModeUsed]) {
         return @"used";
@@ -356,6 +392,17 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     return nil;
 }
 
+- (NSNumber *)widgetResetSecondsForState:(NSDictionary *)state {
+    id value = [[self widgetWindowMode] isEqualToString:WidgetWindowWeekly] ? state[@"secondary_resets_at"] : state[@"primary_resets_at"];
+    if (![value respondsToSelector:@selector(doubleValue)] && [[self widgetWindowMode] isEqualToString:WidgetWindowWeekly]) {
+        value = state[@"primary_resets_at"];
+    }
+    if ([value respondsToSelector:@selector(doubleValue)]) {
+        return @([value doubleValue]);
+    }
+    return nil;
+}
+
 - (NSString *)timeTextForState:(NSDictionary *)state {
     if ([[self timeMode] isEqualToString:TimeModeCountdown]) {
         return [self countdownTextForState:state] ?: @"--:--";
@@ -363,8 +410,28 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     return [self resetClockTextForState:state] ?: @"--";
 }
 
+- (NSString *)timeTextForWidgetState:(NSDictionary *)state {
+    if ([[self timeMode] isEqualToString:TimeModeCountdown]) {
+        return [self countdownTextForWidgetState:state] ?: @"--:--";
+    }
+    return [self resetClockTextForWidgetState:state] ?: @"--";
+}
+
 - (NSString *)resetClockTextForState:(NSDictionary *)state {
     NSNumber *seconds = [self resetSecondsForState:state];
+    if (seconds == nil) {
+        return nil;
+    }
+
+    NSDate *date = [NSDate dateWithTimeIntervalSince1970:seconds.doubleValue];
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    formatter.dateStyle = NSDateFormatterNoStyle;
+    formatter.timeStyle = NSDateFormatterShortStyle;
+    return [formatter stringFromDate:date];
+}
+
+- (NSString *)resetClockTextForWidgetState:(NSDictionary *)state {
+    NSNumber *seconds = [self widgetResetSecondsForState:state];
     if (seconds == nil) {
         return nil;
     }
@@ -389,6 +456,19 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     return [NSString stringWithFormat:@"%ld:%02ld:%02ld", (long)hours, (long)minutes, (long)secs];
 }
 
+- (NSString *)countdownTextForWidgetState:(NSDictionary *)state {
+    NSNumber *seconds = [self widgetResetSecondsForState:state];
+    if (seconds == nil) {
+        return nil;
+    }
+
+    NSInteger remaining = MAX(0, (NSInteger)llround(seconds.doubleValue - [NSDate date].timeIntervalSince1970));
+    NSInteger hours = remaining / 3600;
+    NSInteger minutes = (remaining % 3600) / 60;
+    NSInteger secs = remaining % 60;
+    return [NSString stringWithFormat:@"%ld:%02ld:%02ld", (long)hours, (long)minutes, (long)secs];
+}
+
 - (NSString *)displayMode {
     NSString *mode = [NSUserDefaults.standardUserDefaults stringForKey:DisplayModeKey];
     return mode.length > 0 ? mode : DisplayModePercent;
@@ -402,6 +482,14 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 - (NSString *)metricMode {
     NSString *mode = [NSUserDefaults.standardUserDefaults stringForKey:MetricModeKey];
     return mode.length > 0 ? mode : MetricModeLeft;
+}
+
+- (NSString *)widgetWindowMode {
+    NSString *mode = [NSUserDefaults.standardUserDefaults stringForKey:WidgetWindowModeKey];
+    if ([mode isEqualToString:WidgetWindowWeekly]) {
+        return WidgetWindowWeekly;
+    }
+    return WidgetWindowDaily;
 }
 
 - (NSTimeInterval)refreshIntervalSeconds {
@@ -455,6 +543,18 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 
 - (void)useUsedMetric {
     [NSUserDefaults.standardUserDefaults setObject:MetricModeUsed forKey:MetricModeKey];
+    [self updateStatusItem];
+    self.statusItem.menu = [self menuForCurrentState];
+}
+
+- (void)useDailyWidgetWindow {
+    [NSUserDefaults.standardUserDefaults setObject:WidgetWindowDaily forKey:WidgetWindowModeKey];
+    [self updateStatusItem];
+    self.statusItem.menu = [self menuForCurrentState];
+}
+
+- (void)useWeeklyWidgetWindow {
+    [NSUserDefaults.standardUserDefaults setObject:WidgetWindowWeekly forKey:WidgetWindowModeKey];
     [self updateStatusItem];
     self.statusItem.menu = [self menuForCurrentState];
 }
@@ -843,8 +943,11 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
                                timestamp:(NSDate *)timestamp
                             appServerKeys:(BOOL)appServerKeys {
     NSDictionary *primary = [self windowForSnapshot:snapshot key:@"primary"];
+    NSDictionary *secondary = [self windowForSnapshot:snapshot key:@"secondary"];
     NSNumber *primaryUsed = [self numberFromDictionary:primary keys:appServerKeys ? @[@"usedPercent"] : @[@"used_percent"]];
     NSNumber *primaryReset = [self numberFromDictionary:primary keys:appServerKeys ? @[@"resetsAt"] : @[@"resets_at"]];
+    NSNumber *secondaryUsed = [self numberFromDictionary:secondary keys:appServerKeys ? @[@"usedPercent"] : @[@"used_percent"]];
+    NSNumber *secondaryReset = [self numberFromDictionary:secondary keys:appServerKeys ? @[@"resetsAt"] : @[@"resets_at"]];
     NSString *resetText = [self resetLabelForSeconds:primaryReset includeDate:NO];
 
     NSMutableDictionary *state = [@{
@@ -863,9 +966,14 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     if (primaryReset != nil) {
         state[@"primary_resets_at"] = primaryReset;
     }
+    if (secondaryUsed != nil) {
+        state[@"secondary_used_percent"] = secondaryUsed;
+    }
+    if (secondaryReset != nil) {
+        state[@"secondary_resets_at"] = secondaryReset;
+    }
 
-    NSString *weekly = [self weeklySummary:[self windowForSnapshot:snapshot key:@"secondary"]
-                             appServerKeys:appServerKeys];
+    NSString *weekly = [self weeklySummary:secondary appServerKeys:appServerKeys];
     if (weekly.length > 0) {
         state[@"weekly_summary"] = weekly;
     }
