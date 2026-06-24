@@ -129,6 +129,9 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 
     NSDictionary *state = self.latestState;
     [self addDisabledItem:[self detailUsageTextForState:state] toMenu:menu];
+    if ([state[@"weekly_summary"] isKindOfClass:[NSString class]]) {
+        [self addDisabledItem:state[@"weekly_summary"] toMenu:menu];
+    }
     [self addDisabledItem:[self resetClockDetailForState:state] toMenu:menu];
     [self addDisabledItem:[self countdownDetailForState:state] toMenu:menu];
 
@@ -861,6 +864,12 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         state[@"primary_resets_at"] = primaryReset;
     }
 
+    NSString *weekly = [self weeklySummary:[self windowForSnapshot:snapshot key:@"secondary"]
+                             appServerKeys:appServerKeys];
+    if (weekly.length > 0) {
+        state[@"weekly_summary"] = weekly;
+    }
+
     NSString *credits = [self creditsSummary:[self dictionaryFromSnapshot:snapshot key:@"credits" appServerKeys:appServerKeys]];
     if (credits.length > 0) {
         state[@"credits_summary"] = credits;
@@ -964,6 +973,18 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     NSString *usedText = used != nil ? [NSString stringWithFormat:@"%.0f%% used", used.doubleValue] : @"--% used";
     NSString *resetText = [self resetLabelForSeconds:reset includeDate:NO];
     return [NSString stringWithFormat:@"%@: %@, resets %@", label ?: @"Codex", usedText, resetText];
+}
+
+- (NSString *)weeklySummary:(NSDictionary *)window appServerKeys:(BOOL)appServerKeys {
+    if (window == nil) {
+        return nil;
+    }
+
+    NSNumber *used = [self numberFromDictionary:window keys:appServerKeys ? @[@"usedPercent"] : @[@"used_percent"]];
+    NSNumber *reset = [self numberFromDictionary:window keys:appServerKeys ? @[@"resetsAt"] : @[@"resets_at"]];
+    NSString *usedText = used != nil ? [NSString stringWithFormat:@"%.0f%% used", used.doubleValue] : @"--% used";
+    NSString *resetText = [self resetLabelForSeconds:reset includeDate:YES];
+    return [NSString stringWithFormat:@"Weekly: %@, resets %@", usedText, resetText];
 }
 
 - (NSString *)windowLabelForWindow:(NSDictionary *)window appServerKeys:(BOOL)appServerKeys {
