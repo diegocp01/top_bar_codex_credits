@@ -7,4 +7,4 @@ launchctl bootout "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 || true
 rm -f "$PLIST"
 
 echo "Removed legacy Codex Usage Menu Bar LaunchAgent if present"
-echo "For current builds, disable startup from the app menu item: Launch at Login"
+echo "If you also enabled the app menu item Launch at Login, disable it from the menu bar app."

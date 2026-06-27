@@ -35,7 +35,15 @@ brew tap diegocp01/top_bar_codex_credits https://github.com/diegocp01/top_bar_co
 brew install --cask codex-usage-menu-bar
 ```
 
-Use the app menu item **Launch at Login** to start it automatically. The app does not install a `~/Library/LaunchAgents` plist, and it does not use `KeepAlive`, so choosing **Quit** stays quit.
+Use the app menu item **Launch at Login** to start it automatically through macOS `SMAppService`. It does not use `KeepAlive`, so choosing **Quit** stays quit.
+
+For local development builds, you can also install a per-user LaunchAgent that opens the built app at login:
+
+```sh
+./scripts/install_launch_agent.sh
+```
+
+This LaunchAgent only runs `open` during login. It does not use `KeepAlive`, so choosing **Quit** stays quit until the next login or manual launch.
 
 ## Build Locally
 
@@ -63,7 +71,7 @@ The release script builds the universal app, signs it with hardened runtime, sub
 
 ## Legacy LaunchAgent Cleanup
 
-Older development builds used `~/Library/LaunchAgents/com.local.codex-usage-menu-bar.plist`. Current builds use `SMAppService` instead. To remove an old plist:
+To remove the local development LaunchAgent:
 
 ```sh
 ./scripts/uninstall_launch_agent.sh
