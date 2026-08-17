@@ -37,13 +37,13 @@ brew install --cask codex-usage-menu-bar
 
 Use the app menu item **Launch at Login** to start it automatically through macOS `SMAppService`. It does not use `KeepAlive`, so choosing **Quit** stays quit.
 
-For local development builds, you can also install a per-user LaunchAgent that opens the built app at login:
+For local development builds, you can also install a per-user LaunchAgent. The script copies the app to `~/Applications` before registering it so cloud-sync metadata in a source checkout cannot invalidate its code signature:
 
 ```sh
 ./scripts/install_launch_agent.sh
 ```
 
-This LaunchAgent only runs `open` during login. It does not use `KeepAlive`, so choosing **Quit** stays quit until the next login or manual launch.
+This LaunchAgent only runs `open` during login. It does not use `KeepAlive`, so choosing **Quit** stays quit until the next login or manual launch. The widget discovers Codex in both the standalone `Codex.app` and the newer `ChatGPT.app` bundle.
 
 ## Build Locally
 

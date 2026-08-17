@@ -59,11 +59,21 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 }
 
 - (NSImage *)codexMenuBarIcon {
-    NSArray<NSString *> *paths = @[
-        @"/Applications/Codex.app/Contents/Resources/codexTemplate@2x.png",
-        @"/Applications/Codex.app/Contents/Resources/icon-codex-dark.png",
-        @"/Applications/Codex.app/Contents/Resources/icon.png"
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    NSString *bundledIcon = [NSBundle.mainBundle pathForResource:@"CodexMenuBarIcon" ofType:@"svg"];
+    if (bundledIcon.length > 0) {
+        [paths addObject:bundledIcon];
+    }
+    NSArray<NSString *> *names = @[
+        @"codexTemplate@2x.png",
+        @"icon-codex-dark.png"
     ];
+
+    for (NSString *directory in [self codexAppResourceDirectories]) {
+        for (NSString *name in names) {
+            [paths addObject:[directory stringByAppendingPathComponent:name]];
+        }
+    }
 
     for (NSString *path in paths) {
         NSImage *image = [[NSImage alloc] initWithContentsOfFile:path];
@@ -74,7 +84,35 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         }
     }
 
-    return nil;
+    NSImage *fallback = [NSImage imageWithSystemSymbolName:@"terminal.fill"
+                                  accessibilityDescription:@"Codex"];
+    fallback.template = YES;
+    fallback.size = NSMakeSize(18.0, 18.0);
+    return fallback;
+}
+
+- (NSArray<NSString *> *)codexAppResourceDirectories {
+    NSMutableArray<NSString *> *directories = [NSMutableArray array];
+
+    NSURL *installedAppURL = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:@"com.openai.codex"];
+    if (installedAppURL.path.length > 0) {
+        [directories addObject:[installedAppURL.path stringByAppendingPathComponent:@"Contents/Resources"]];
+    }
+
+    NSArray<NSString *> *knownApplications = @[
+        @"/Applications/ChatGPT.app",
+        @"/Applications/Codex.app",
+        [[@"~/Applications/ChatGPT.app" stringByExpandingTildeInPath] stringByStandardizingPath],
+        [[@"~/Applications/Codex.app" stringByExpandingTildeInPath] stringByStandardizingPath]
+    ];
+    for (NSString *application in knownApplications) {
+        NSString *resources = [application stringByAppendingPathComponent:@"Contents/Resources"];
+        if (![directories containsObject:resources]) {
+            [directories addObject:resources];
+        }
+    }
+
+    return directories;
 }
 
 - (NSImage *)batteryIconForPercent:(double)percent {
@@ -639,6 +677,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 
     NSMutableData *outputData = [NSMutableData data];
     NSMutableData *errorData = [NSMutableData data];
+    dispatch_semaphore_t initializeReady = dispatch_semaphore_create(0);
     dispatch_semaphore_t responseReady = dispatch_semaphore_create(0);
 
     stdoutPipe.fileHandleForReading.readabilityHandler = ^(NSFileHandle *handle) {
@@ -648,6 +687,9 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         }
         @synchronized (outputData) {
             [outputData appendData:chunk];
+            if ([self jsonRPCResponseWithId:@"codex-usage-menu-bar-init" fromData:outputData] != nil) {
+                dispatch_semaphore_signal(initializeReady);
+            }
             if ([self jsonRPCResponseWithId:@"codex-usage-menu-bar" fromData:outputData] != nil) {
                 dispatch_semaphore_signal(responseReady);
             }
@@ -678,19 +720,9 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
                 }
             }
         };
-        NSDictionary *request = @{
-            @"id": @"codex-usage-menu-bar",
-            @"method": @"account/rateLimits/read",
-            @"params": [NSNull null]
-        };
         NSData *initializeData = [NSJSONSerialization dataWithJSONObject:initialize options:0 error:nil];
-        NSData *requestData = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
         if (initializeData != nil) {
             [[stdinPipe fileHandleForWriting] writeData:initializeData];
-            [[stdinPipe fileHandleForWriting] writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
-        }
-        if (requestData != nil) {
-            [[stdinPipe fileHandleForWriting] writeData:requestData];
             [[stdinPipe fileHandleForWriting] writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
         }
     } @catch (NSException *exception) {
@@ -699,6 +731,49 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         return @{
             @"ok": @NO,
             @"error": [NSString stringWithFormat:@"Could not start Codex app-server: %@", exception.reason ?: @"unknown"]
+        };
+    }
+
+    long initializeWaitResult = dispatch_semaphore_wait(initializeReady, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8.0 * NSEC_PER_SEC)));
+    if (initializeWaitResult != 0) {
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil;
+        stderrPipe.fileHandleForReading.readabilityHandler = nil;
+        [[stdinPipe fileHandleForWriting] closeFile];
+        if (task.isRunning) {
+            [task terminate];
+            [task waitUntilExit];
+        }
+        return @{@"ok": @NO, @"error": @"Codex app-server initialization timed out"};
+    }
+
+    @try {
+        NSDictionary *initialized = @{
+            @"method": @"initialized",
+            @"params": @{}
+        };
+        NSDictionary *request = @{
+            @"id": @"codex-usage-menu-bar",
+            @"method": @"account/rateLimits/read",
+            @"params": [NSNull null]
+        };
+        for (NSDictionary *message in @[initialized, request]) {
+            NSData *messageData = [NSJSONSerialization dataWithJSONObject:message options:0 error:nil];
+            if (messageData != nil) {
+                [[stdinPipe fileHandleForWriting] writeData:messageData];
+                [[stdinPipe fileHandleForWriting] writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
+            }
+        }
+    } @catch (NSException *exception) {
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil;
+        stderrPipe.fileHandleForReading.readabilityHandler = nil;
+        [[stdinPipe fileHandleForWriting] closeFile];
+        if (task.isRunning) {
+            [task terminate];
+            [task waitUntilExit];
+        }
+        return @{
+            @"ok": @NO,
+            @"error": [NSString stringWithFormat:@"Could not query Codex app-server: %@", exception.reason ?: @"unknown"]
         };
     }
 
@@ -750,11 +825,14 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         return override;
     }
 
-    NSArray<NSString *> *candidates = @[
-        @"/Applications/Codex.app/Contents/Resources/codex",
+    NSMutableArray<NSString *> *candidates = [NSMutableArray array];
+    for (NSString *directory in [self codexAppResourceDirectories]) {
+        [candidates addObject:[directory stringByAppendingPathComponent:@"codex"]];
+    }
+    [candidates addObjectsFromArray:@[
         @"/opt/homebrew/bin/codex",
         @"/usr/local/bin/codex"
-    ];
+    ]];
     for (NSString *path in candidates) {
         if ([NSFileManager.defaultManager isExecutableFileAtPath:path]) {
             return path;

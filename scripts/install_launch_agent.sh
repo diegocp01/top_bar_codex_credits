@@ -2,12 +2,21 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_PATH="$ROOT_DIR/.build/release/Codex Usage Menu Bar.app"
+BUILD_OUT_DIR="$(mktemp -d "${TMPDIR:-/private/tmp}/codex-usage-menu-bar.XXXXXX")"
+trap 'rm -rf "$BUILD_OUT_DIR"' EXIT
+BUILT_APP_PATH="$BUILD_OUT_DIR/Codex Usage Menu Bar.app"
+APP_PATH="${APP_PATH:-$HOME/Applications/Codex Usage Menu Bar.app}"
 PLIST="$HOME/Library/LaunchAgents/com.local.codex-usage-menu-bar.plist"
 
-if [[ ! -d "$APP_PATH" ]]; then
-  "$ROOT_DIR/scripts/build.sh" >/dev/null
-fi
+OUT_DIR="$BUILD_OUT_DIR" "$ROOT_DIR/scripts/build.sh" >/dev/null
+
+mkdir -p "$(dirname "$APP_PATH")"
+pkill -x CodexUsageMenuBar >/dev/null 2>&1 || true
+rm -rf "$APP_PATH"
+ditto --noqtn "$BUILT_APP_PATH" "$APP_PATH"
+xattr -cr "$APP_PATH" 2>/dev/null || true
+codesign --force --sign - --options runtime "$APP_PATH" >/dev/null
+codesign --verify --deep --strict "$APP_PATH"
 
 mkdir -p "$(dirname "$PLIST")"
 
@@ -41,4 +50,6 @@ open "$APP_PATH"
 cat <<MSG
 Installed Codex Usage Menu Bar LaunchAgent:
 $PLIST
+Installed app:
+$APP_PATH
 MSG

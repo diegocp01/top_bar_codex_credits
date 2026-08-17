@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36">
+  <mask id="terminal-cutout">
+    <rect width="36" height="36" fill="white"/>
+    <path d="M11.2 12.8 L15.6 18 L11.2 23.2" fill="none" stroke="black" stroke-width="3.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M19.2 23 L26.6 23" fill="none" stroke="black" stroke-width="3.3" stroke-linecap="round"/>
+  </mask>
+  <g fill="black" mask="url(#terminal-cutout)">
+    <ellipse cx="18" cy="18" rx="11.2" ry="11.2"/>
+    <ellipse cx="18.2" cy="25.6" rx="6.6" ry="7.2"/>
+    <ellipse cx="26.2" cy="21.2" rx="6.6" ry="6.8"/>
+    <ellipse cx="26.4" cy="13" rx="6.4" ry="6.8"/>
+    <ellipse cx="18.4" cy="9.4" rx="6.6" ry="7"/>
+    <ellipse cx="9.6" cy="13.2" rx="6.6" ry="6.8"/>
+    <ellipse cx="9.6" cy="21.4" rx="6.6" ry="6.8"/>
+  </g>
+</svg>

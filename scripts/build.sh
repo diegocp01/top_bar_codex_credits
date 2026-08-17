@@ -25,9 +25,18 @@ env CLANG_MODULE_CACHE_PATH="$ROOT_DIR/.build/module-cache" \
   -O2 \
   -o "$BINARY"
 
-if [[ -f /Applications/Codex.app/Contents/Resources/icon.icns ]]; then
-  cp /Applications/Codex.app/Contents/Resources/icon.icns "$RESOURCES_DIR/AppIcon.icns"
-fi
+cp "$ROOT_DIR/assets/codex-menu-bar-icon.svg" "$RESOURCES_DIR/CodexMenuBarIcon.svg"
+
+for icon in \
+  /Applications/Codex.app/Contents/Resources/icon.icns \
+  /Applications/ChatGPT.app/Contents/Resources/icon-codex-light.png
+do
+  if [[ -f "$icon" ]]; then
+    extension="${icon##*.}"
+    cp "$icon" "$RESOURCES_DIR/AppIcon.$extension"
+    break
+  fi
+done
 
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -66,8 +75,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 </plist>
 PLIST
 
-find "$APP_DIR" -exec xattr -c {} + 2>/dev/null || true
+xattr -cr "$APP_DIR" 2>/dev/null || true
 codesign --force --sign "${CODESIGN_IDENTITY:--}" --options runtime "$APP_DIR" >/dev/null
-find "$APP_DIR" -exec xattr -c {} + 2>/dev/null || true
+codesign --verify --deep --strict "$APP_DIR"
 
 echo "$APP_DIR"
