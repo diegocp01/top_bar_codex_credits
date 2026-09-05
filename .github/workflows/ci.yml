@@ -1,0 +1,11 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/test-startup.sh
+      - run: ./scripts/build.sh
