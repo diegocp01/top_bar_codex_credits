@@ -1,7 +1,9 @@
+#import "PersistentStartup.h"
 #import <Cocoa/Cocoa.h>
 #import <ServiceManagement/ServiceManagement.h>
 #import <math.h>
 
+static NSString * const LaunchAtLoginPreferenceKey = @"launchAtLoginPreference";
 static NSString * const DisplayModeKey = @"displayMode";
 static NSString * const DisplayModePercent = @"percent";
 static NSString * const DisplayModeBattery = @"battery";
@@ -33,12 +35,15 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 
     [NSUserDefaults.standardUserDefaults registerDefaults:@{
+        LaunchAtLoginPreferenceKey: @YES,
         DisplayModeKey: DisplayModePercent,
         TimeModeKey: TimeModeClock,
         MetricModeKey: MetricModeLeft,
         WidgetWindowModeKey: WidgetWindowDaily,
         RefreshIntervalKey: @(DefaultRefreshIntervalSeconds)
     }];
+
+    [self ensureLaunchAtLoginIfPreferred];
 
     self.codexIcon = [self codexMenuBarIcon];
     self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
@@ -256,7 +261,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     [self addRefreshIntervalSubmenuToMenu:menu];
 
     [menu addItem:[NSMenuItem separatorItem]];
-    [self addChoiceWithTitle:@"Launch at Login"
+    [self addChoiceWithTitle:@"Launch at Login & Keep Running"
                       action:@selector(toggleLaunchAtLogin)
                      checked:[self launchAtLoginEnabled]
                       toMenu:menu];
@@ -1321,31 +1326,35 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     return [formatter dateFromString:value];
 }
 
+- (PersistentStartup *)startup {
+    return StartupController(@"com.local.autostart.codex-usage");
+}
+
 - (BOOL)launchAtLoginEnabled {
-    if (@available(macOS 13.0, *)) {
-        return SMAppService.mainAppService.status == SMAppServiceStatusEnabled;
-    }
-    return NO;
+    return [NSFileManager.defaultManager fileExistsAtPath:self.startup.path] && self.startup.loaded;
+}
+
+- (NSString *)launchAtLoginStatusText {
+    if ([self launchAtLoginEnabled]) return @"enabled";
+    return [NSFileManager.defaultManager fileExistsAtPath:self.startup.path] ? @"inactive" : @"not_registered";
+}
+
+- (void)ensureLaunchAtLoginIfPreferred {
+    NSError *error = nil;
+    BOOL preferred = [NSUserDefaults.standardUserDefaults boolForKey:LaunchAtLoginPreferenceKey];
+    // Retire the older installer-only login job before taking ownership.
+    BOOL ok = [StartupController(@"com.local.codex-usage-menu-bar") setEnabled:NO error:&error]
+        && RemoveNativeLoginItem(&error) && [self.startup setEnabled:preferred error:&error];
+    self.launchAtLoginError = ok ? nil : error.localizedDescription;
 }
 
 - (void)toggleLaunchAtLogin {
-    self.launchAtLoginError = nil;
-
-    if (@available(macOS 13.0, *)) {
-        NSError *error = nil;
-        BOOL ok = NO;
-        if (SMAppService.mainAppService.status == SMAppServiceStatusEnabled) {
-            ok = [SMAppService.mainAppService unregisterAndReturnError:&error];
-        } else {
-            ok = [SMAppService.mainAppService registerAndReturnError:&error];
-        }
-        if (!ok) {
-            self.launchAtLoginError = error.localizedDescription ?: @"could not update";
-        }
-    } else {
-        self.launchAtLoginError = @"requires macOS 13 or newer";
-    }
-
+    NSError *error = nil;
+    // A pending/blocked registration can also be turned off.
+    BOOL wasPreferred = [NSUserDefaults.standardUserDefaults boolForKey:LaunchAtLoginPreferenceKey];
+    BOOL ok = RemoveNativeLoginItem(&error) && [self.startup setEnabled:!wasPreferred error:&error];
+    if (ok) [NSUserDefaults.standardUserDefaults setBool:!wasPreferred forKey:LaunchAtLoginPreferenceKey];
+    self.launchAtLoginError = ok ? nil : error.localizedDescription;
     self.statusItem.menu = [self menuForCurrentState];
 }
 
@@ -1360,6 +1369,16 @@ int main(int argc, const char *argv[]) {
     (void)argv;
 
     @autoreleasepool {
+        if (argc > 1 && strcmp(argv[1], "--pause-startup") == 0) {
+            NSError *error = nil;
+            BOOL ok = [StartupController(@"com.local.autostart.codex-usage") pause:&error];
+            if (!ok) fprintf(stderr, "%s\n", error.localizedDescription.UTF8String);
+            return ok ? 0 : 1;
+        }
+        if (argc > 1 && strcmp(argv[1], "--launch-at-login-status") == 0) {
+            printf("%s\n", [[AppDelegate new] launchAtLoginStatusText].UTF8String);
+            return 0;
+        }
         NSApplication *app = [NSApplication sharedApplication];
         AppDelegate *delegate = [[AppDelegate alloc] init];
         app.delegate = delegate;

@@ -11,7 +11,11 @@ cask "codex-usage-menu-bar" do
 
   app "Codex Usage Menu Bar.app"
 
+  uninstall launchctl: "com.local.autostart.codex-usage",
+            delete: "~/Library/LaunchAgents/com.local.autostart.codex-usage.plist"
+
   zap trash: [
+    "~/Library/LaunchAgents/com.local.autostart.codex-usage.plist",
     "~/Library/Preferences/com.local.codex-usage-menu-bar.plist",
     "~/Library/LaunchAgents/com.local.codex-usage-menu-bar.plist",
   ]

@@ -17,7 +17,7 @@ Click the menu-bar item to choose:
 - Percentage left or percentage used. The default is percentage left.
 - Reset clock time or a live countdown to reset.
 - Refresh interval: 30 seconds, 1 minute, 3 minutes, or 5 minutes.
-- Launch at Login, backed by `SMAppService`.
+- Automatic login startup and restart after exits, with a menu opt-out.
 
 ## Install
 
@@ -35,7 +35,7 @@ brew tap diegocp01/top_bar_codex_credits https://github.com/diegocp01/top_bar_co
 brew install --cask codex-usage-menu-bar
 ```
 
-Use the app menu item **Launch at Login** to start it automatically through macOS `SMAppService`. It does not use `KeepAlive`, so choosing **Quit** stays quit.
+The app enables **Launch at Login & Keep Running** on its first launch.
 
 For local development builds, you can also install a per-user LaunchAgent. The script copies the app to `~/Applications` before registering it so cloud-sync metadata in a source checkout cannot invalidate its code signature:
 
@@ -43,7 +43,7 @@ For local development builds, you can also install a per-user LaunchAgent. The s
 ./scripts/install_launch_agent.sh
 ```
 
-This LaunchAgent only runs `open` during login. It does not use `KeepAlive`, so choosing **Quit** stays quit until the next login or manual launch. The widget discovers Codex in both the standalone `Codex.app` and the newer `ChatGPT.app` bundle.
+The installer copies the app into a stable location; the app manages its own startup registration.
 
 ## Build Locally
 
@@ -76,3 +76,26 @@ To remove the local development LaunchAgent:
 ```sh
 ./scripts/uninstall_launch_agent.sh
 ```
+
+## Persistent menu-bar startup
+
+On first launch, the app installs a per-user LaunchAgent that starts it after login
+(including after a restart) and reopens it if it exits. It uses `open -g -W` so
+macOS launches the normal app bundle without creating duplicate instances, with
+a 30-second throttle to avoid a tight restart loop. No administrator access is needed.
+An existing saved opt-out is preserved. Older native login registrations are removed
+when migrating to this single startup mechanism.
+
+**Quit will reopen the app while this option is enabled.** Turn off
+**Launch at Login & Keep Running** in the app menu before quitting to keep it closed.
+Registration failures are shown in the menu. If macOS blocks a background item,
+allow the app in **System Settings → General → Login Items**, then toggle the option
+off and on. macOS approval and a logged-in graphical session are required; startup
+cannot put an icon on the login screen. Install the app in its final location before
+opening it, and open it again after moving it to update the saved path.
+
+Install/update scripts pause the restart job before replacing the app. The next normal
+launch resumes it if enabled. To remove the app, disable the menu option first.
+
+Run `./scripts/test-startup.sh` for isolated startup lifecycle tests. These use a
+fake launchctl runner and temporary paths; they never alter your login items.
