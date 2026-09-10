@@ -191,10 +191,25 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         NSBezierPath *marker = [NSBezierPath bezierPath];
         [marker moveToPoint:NSMakePoint(markerX, body.origin.y + 1.0)];
         [marker lineToPoint:NSMakePoint(markerX, NSMaxY(body) - 1.0)];
-        marker.lineWidth = 1.5;
+        marker.lineWidth = 1.0;
         marker.lineCapStyle = NSLineCapStyleRound;
-        [paceColor setStroke];
+        [[paceColor colorWithAlphaComponent:0.65] setStroke];
         [marker stroke];
+
+        // Reapply the contrasting number mask after the marker so the pace
+        // indicator can never paint over a digit when their positions overlap.
+        NSDictionary *foregroundAttributes = @{
+            NSFontAttributeName: attributes[NSFontAttributeName],
+            NSForegroundColorAttributeName: foregroundColor
+        };
+        [number drawAtPoint:numberPoint withAttributes:foregroundAttributes];
+        if (fillPath != nil) {
+            [NSGraphicsContext saveGraphicsState];
+            [fillPath addClip];
+            NSGraphicsContext.currentContext.compositingOperation = NSCompositingOperationDestinationOut;
+            [number drawAtPoint:numberPoint withAttributes:foregroundAttributes];
+            [NSGraphicsContext restoreGraphicsState];
+        }
     }
 
     [image unlockFocus];
