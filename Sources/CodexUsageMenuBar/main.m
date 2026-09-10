@@ -1,4 +1,5 @@
 #import "PersistentStartup.h"
+#import "UsagePace.h"
 #import <Cocoa/Cocoa.h>
 #import <ServiceManagement/ServiceManagement.h>
 #import <math.h>
@@ -120,9 +121,18 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     return directories;
 }
 
-- (NSImage *)batteryIconForPercent:(double)percent {
+- (NSImage *)batteryIconForPercent:(double)percent recommendedPercent:(double)recommendedPercent {
     double clamped = MAX(0.0, MIN(100.0, percent));
     NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(66.0, 18.0)];
+    __block NSColor *foregroundColor = NSColor.blackColor;
+    __block NSColor *paceColor = NSColor.systemGreenColor;
+    NSAppearance *appearance = self.statusItem.button.effectiveAppearance ?: NSApp.effectiveAppearance;
+    [appearance performAsCurrentDrawingAppearance:^{
+        foregroundColor = [NSColor.labelColor colorUsingColorSpace:NSColorSpace.deviceRGBColorSpace]
+            ?: NSColor.blackColor;
+        paceColor = [NSColor.systemGreenColor colorUsingColorSpace:NSColorSpace.deviceRGBColorSpace]
+            ?: NSColor.systemGreenColor;
+    }];
 
     [image lockFocus];
 
@@ -169,8 +179,26 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         [NSGraphicsContext restoreGraphicsState];
     }
 
+    // Resolve the template artwork to the current menu-bar foreground color so
+    // the pace marker can retain its green color in an otherwise monochrome icon.
+    [foregroundColor setFill];
+    NSRectFillUsingOperation(NSMakeRect(0.0, 0.0, image.size.width, image.size.height),
+                             NSCompositingOperationSourceIn);
+
+    if (isfinite(recommendedPercent)) {
+        double pace = MAX(0.0, MIN(100.0, recommendedPercent));
+        CGFloat markerX = body.origin.x + 2.0 + (body.size.width - 4.0) * (CGFloat)(pace / 100.0);
+        NSBezierPath *marker = [NSBezierPath bezierPath];
+        [marker moveToPoint:NSMakePoint(markerX, body.origin.y + 1.0)];
+        [marker lineToPoint:NSMakePoint(markerX, NSMaxY(body) - 1.0)];
+        marker.lineWidth = 1.5;
+        marker.lineCapStyle = NSLineCapStyleRound;
+        [paceColor setStroke];
+        [marker stroke];
+    }
+
     [image unlockFocus];
-    image.template = YES;
+    image.template = NO;
     return image;
 }
 
@@ -341,6 +369,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     NSDictionary *state = self.latestState;
     NSNumber *ok = state[@"ok"];
     if (![ok respondsToSelector:@selector(boolValue)] || ![ok boolValue]) {
+        self.statusItem.button.toolTip = nil;
         self.statusItem.button.image = self.codexIcon;
         self.statusItem.button.title = @"--";
         return;
@@ -350,11 +379,17 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     NSString *timeText = [self timeTextForWidgetState:state];
 
     if ([[self displayMode] isEqualToString:DisplayModeBattery]) {
-        self.statusItem.button.image = [self batteryIconForPercent:metric];
+        double recommendedPercent = NAN;
+        if ([[self metricMode] isEqualToString:MetricModeLeft]) {
+            recommendedPercent = [self recommendedPercentLeftForWidgetState:state];
+        }
+        self.statusItem.button.image = [self batteryIconForPercent:metric recommendedPercent:recommendedPercent];
         self.statusItem.button.title = timeText;
+        self.statusItem.button.toolTip = isfinite(recommendedPercent) ? @"Green marker: on-pace usage target" : nil;
         return;
     }
 
+    self.statusItem.button.toolTip = nil;
     self.statusItem.button.image = self.codexIcon;
     if (isnan(metric)) {
         self.statusItem.button.title = timeText.length > 0 ? timeText : @"--";
@@ -458,6 +493,34 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         return @([value doubleValue]);
     }
     return nil;
+}
+
+- (NSNumber *)widgetWindowDurationMinutesForState:(NSDictionary *)state {
+    BOOL weekly = [[self widgetWindowMode] isEqualToString:WidgetWindowWeekly];
+    id value = state[@"primary_window_minutes"];
+    if (weekly && [state[@"secondary_resets_at"] respondsToSelector:@selector(doubleValue)]) {
+        value = state[@"secondary_window_minutes"];
+        if (![value respondsToSelector:@selector(doubleValue)]) {
+            // The weekly selector has an explicit seven-day meaning even when
+            // a legacy usage event omits the window-duration field.
+            return @(7.0 * 24.0 * 60.0);
+        }
+    }
+    if ([value respondsToSelector:@selector(doubleValue)] && [value doubleValue] > 0.0) {
+        return @([value doubleValue]);
+    }
+    return nil;
+}
+
+- (double)recommendedPercentLeftForWidgetState:(NSDictionary *)state {
+    NSNumber *reset = [self widgetResetSecondsForState:state];
+    NSNumber *durationMinutes = [self widgetWindowDurationMinutesForState:state];
+    if (reset == nil || durationMinutes == nil) {
+        return NAN;
+    }
+    return CodexOnPacePercentLeft(reset.doubleValue,
+                                  NSDate.date.timeIntervalSince1970,
+                                  durationMinutes.doubleValue);
 }
 
 - (NSString *)timeTextForState:(NSDictionary *)state {
@@ -1043,8 +1106,10 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     NSDictionary *secondary = [self windowForSnapshot:snapshot key:@"secondary"];
     NSNumber *primaryUsed = [self numberFromDictionary:primary keys:appServerKeys ? @[@"usedPercent"] : @[@"used_percent"]];
     NSNumber *primaryReset = [self numberFromDictionary:primary keys:appServerKeys ? @[@"resetsAt"] : @[@"resets_at"]];
+    NSNumber *primaryWindowMinutes = [self numberFromDictionary:primary keys:appServerKeys ? @[@"windowDurationMins"] : @[@"window_minutes"]];
     NSNumber *secondaryUsed = [self numberFromDictionary:secondary keys:appServerKeys ? @[@"usedPercent"] : @[@"used_percent"]];
     NSNumber *secondaryReset = [self numberFromDictionary:secondary keys:appServerKeys ? @[@"resetsAt"] : @[@"resets_at"]];
+    NSNumber *secondaryWindowMinutes = [self numberFromDictionary:secondary keys:appServerKeys ? @[@"windowDurationMins"] : @[@"window_minutes"]];
     NSString *resetText = [self resetLabelForSeconds:primaryReset includeDate:NO];
 
     NSMutableDictionary *state = [@{
@@ -1063,11 +1128,17 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     if (primaryReset != nil) {
         state[@"primary_resets_at"] = primaryReset;
     }
+    if (primaryWindowMinutes != nil) {
+        state[@"primary_window_minutes"] = primaryWindowMinutes;
+    }
     if (secondaryUsed != nil) {
         state[@"secondary_used_percent"] = secondaryUsed;
     }
     if (secondaryReset != nil) {
         state[@"secondary_resets_at"] = secondaryReset;
+    }
+    if (secondaryWindowMinutes != nil) {
+        state[@"secondary_window_minutes"] = secondaryWindowMinutes;
     }
 
     NSString *weekly = [self weeklySummary:secondary appServerKeys:appServerKeys];
