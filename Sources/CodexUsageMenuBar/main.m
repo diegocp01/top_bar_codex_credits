@@ -140,9 +140,11 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     [[NSBezierPath bezierPathWithRoundedRect:nub xRadius:0.8 yRadius:0.8] fill];
 
     CGFloat fillWidth = (CGFloat)((body.size.width - 4.0) * (clamped / 100.0));
+    NSBezierPath *fillPath = nil;
     if (fillWidth > 0.5) {
         NSRect fillRect = NSMakeRect(body.origin.x + 2.0, body.origin.y + 2.0, fillWidth, body.size.height - 4.0);
-        [[NSBezierPath bezierPathWithRoundedRect:fillRect xRadius:1.0 yRadius:1.0] fill];
+        fillPath = [NSBezierPath bezierPathWithRoundedRect:fillRect xRadius:1.0 yRadius:1.0];
+        [fillPath fill];
     }
 
     NSString *number = [NSString stringWithFormat:@"%.0f", clamped];
@@ -154,6 +156,18 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     NSPoint numberPoint = NSMakePoint(NSMidX(body) - numberSize.width / 2.0,
                                       NSMidY(body) - numberSize.height / 2.0 - 0.5);
     [number drawAtPoint:numberPoint withAttributes:attributes];
+
+    // Template images carry opacity rather than fixed colors. Remove the part of
+    // each glyph that overlaps the charge so it reveals the menu-bar background;
+    // the remainder keeps the system icon tint. This gives the number opposite
+    // contrast on either side of the moving fill boundary in light and dark mode.
+    if (fillPath != nil) {
+        [NSGraphicsContext saveGraphicsState];
+        [fillPath addClip];
+        NSGraphicsContext.currentContext.compositingOperation = NSCompositingOperationDestinationOut;
+        [number drawAtPoint:numberPoint withAttributes:attributes];
+        [NSGraphicsContext restoreGraphicsState];
+    }
 
     [image unlockFocus];
     image.template = YES;
