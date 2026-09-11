@@ -4,10 +4,10 @@ Small macOS menu-bar utility that shows live Codex usage limits, reset timing, c
 
 <p>
   <img src="assets/menu-bar-preview.png" alt="Codex Usage Menu Bar countdown preview" width="284">
-  <img src="assets/menu-bar-battery-preview.png" alt="Battery view showing actual usage remaining and a green on-pace marker" width="284">
+  <img src="assets/menu-bar-battery-preview.png" alt="Battery view showing actual usage remaining and an on-pace marker" width="284">
 </p>
 
-In battery mode, the filled portion and number show your **actual percentage remaining**. When **Show % Left** is selected, the thin green marker shows the **on-pace percentage for the time remaining** in the selected daily or weekly window. If the fill ends before the marker, usage is ahead of pace; if it reaches beyond the marker, there is room to use more. The marker is hidden in **Show % Used** mode.
+In battery mode, the filled portion and number show your **actual percentage remaining**. When **Show % Left** is selected, the vertical contrast marker shows the **on-pace percentage for the time remaining** in the selected daily or weekly window. Like the number, the marker is dark over battery fill and light over empty space, so it remains visible in either position. If the fill ends before the marker, usage is ahead of pace; if it reaches beyond the marker, there is room to use more. The marker is hidden in **Show % Used** mode.
 
 The app uses Codex app-server as its live source through `account/rateLimits/read`. It understands the current multi-bucket snapshot shape, including secondary windows, monthly account limits, credits, and `rateLimitResetCredits`. If app-server is unavailable, it falls back to reading recent local Codex JSONL session events from `~/.codex/sessions`.
 
