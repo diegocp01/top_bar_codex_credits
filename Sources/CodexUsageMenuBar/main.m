@@ -189,7 +189,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
                                          numberSize.width + 1.0,
                                          numberSize.height);
         CGFloat markerAlpha = NSPointInRect(NSMakePoint(markerX, NSMidY(numberBounds)), numberBounds)
-            ? 0.45
+            ? 0.65
             : 1.0;
         NSBezierPath *marker = [NSBezierPath bezierPath];
         [marker moveToPoint:NSMakePoint(markerX, body.origin.y + 1.0)];
