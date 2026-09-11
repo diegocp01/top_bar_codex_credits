@@ -184,12 +184,19 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     if (isfinite(recommendedPercent)) {
         double pace = MAX(0.0, MIN(100.0, recommendedPercent));
         CGFloat markerX = body.origin.x + 2.0 + (body.size.width - 4.0) * (CGFloat)(pace / 100.0);
+        NSRect numberBounds = NSMakeRect(numberPoint.x - 0.5,
+                                         numberPoint.y,
+                                         numberSize.width + 1.0,
+                                         numberSize.height);
+        CGFloat markerAlpha = NSPointInRect(NSMakePoint(markerX, NSMidY(numberBounds)), numberBounds)
+            ? 0.45
+            : 1.0;
         NSBezierPath *marker = [NSBezierPath bezierPath];
         [marker moveToPoint:NSMakePoint(markerX, body.origin.y + 1.0)];
         [marker lineToPoint:NSMakePoint(markerX, NSMaxY(body) - 1.0)];
         marker.lineWidth = 1.5;
         marker.lineCapStyle = NSLineCapStyleRound;
-        [foregroundColor setStroke];
+        [[foregroundColor colorWithAlphaComponent:markerAlpha] setStroke];
         [marker stroke];
 
         // Match the number's adaptive contrast: keep the foreground-colored
