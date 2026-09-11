@@ -125,13 +125,10 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     double clamped = MAX(0.0, MIN(100.0, percent));
     NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(66.0, 18.0)];
     __block NSColor *foregroundColor = NSColor.blackColor;
-    __block NSColor *paceColor = NSColor.systemGreenColor;
     NSAppearance *appearance = self.statusItem.button.effectiveAppearance ?: NSApp.effectiveAppearance;
     [appearance performAsCurrentDrawingAppearance:^{
         foregroundColor = [NSColor.labelColor colorUsingColorSpace:NSColorSpace.deviceRGBColorSpace]
             ?: NSColor.blackColor;
-        paceColor = [NSColor.systemGreenColor colorUsingColorSpace:NSColorSpace.deviceRGBColorSpace]
-            ?: NSColor.systemGreenColor;
     }];
 
     [image lockFocus];
@@ -179,8 +176,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         [NSGraphicsContext restoreGraphicsState];
     }
 
-    // Resolve the template artwork to the current menu-bar foreground color so
-    // the pace marker can retain its green color in an otherwise monochrome icon.
+    // Resolve the template artwork to the current menu-bar foreground color.
     [foregroundColor setFill];
     NSRectFillUsingOperation(NSMakeRect(0.0, 0.0, image.size.width, image.size.height),
                              NSCompositingOperationSourceIn);
@@ -191,10 +187,20 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         NSBezierPath *marker = [NSBezierPath bezierPath];
         [marker moveToPoint:NSMakePoint(markerX, body.origin.y + 1.0)];
         [marker lineToPoint:NSMakePoint(markerX, NSMaxY(body) - 1.0)];
-        marker.lineWidth = 1.0;
+        marker.lineWidth = 1.5;
         marker.lineCapStyle = NSLineCapStyleRound;
-        [[paceColor colorWithAlphaComponent:0.65] setStroke];
+        [foregroundColor setStroke];
         [marker stroke];
+
+        // Match the number's adaptive contrast: keep the foreground-colored
+        // portion over empty space and cut out the portion over battery fill.
+        if (fillPath != nil) {
+            [NSGraphicsContext saveGraphicsState];
+            [fillPath addClip];
+            NSGraphicsContext.currentContext.compositingOperation = NSCompositingOperationDestinationOut;
+            [marker stroke];
+            [NSGraphicsContext restoreGraphicsState];
+        }
 
         // Reapply the contrasting number mask after the marker so the pace
         // indicator can never paint over a digit when their positions overlap.
@@ -400,7 +406,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
         }
         self.statusItem.button.image = [self batteryIconForPercent:metric recommendedPercent:recommendedPercent];
         self.statusItem.button.title = timeText;
-        self.statusItem.button.toolTip = isfinite(recommendedPercent) ? @"Green marker: on-pace usage target" : nil;
+        self.statusItem.button.toolTip = isfinite(recommendedPercent) ? @"Contrast marker: on-pace usage target" : nil;
         return;
     }
 
