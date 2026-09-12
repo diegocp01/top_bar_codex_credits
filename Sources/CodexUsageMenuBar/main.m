@@ -11,6 +11,7 @@ static NSString * const DisplayModeBattery = @"battery";
 static NSString * const TimeModeKey = @"timeMode";
 static NSString * const TimeModeClock = @"clock";
 static NSString * const TimeModeCountdown = @"countdown";
+static NSString * const TimeModeHidden = @"hidden";
 static NSString * const MetricModeKey = @"metricMode";
 static NSString * const MetricModeLeft = @"left";
 static NSString * const MetricModeUsed = @"used";
@@ -326,6 +327,10 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
                       action:@selector(useCountdownTime)
                      checked:[[self timeMode] isEqualToString:TimeModeCountdown]
                       toMenu:menu];
+    [self addChoiceWithTitle:@"Hide Time"
+                      action:@selector(useHiddenTime)
+                     checked:[[self timeMode] isEqualToString:TimeModeHidden]
+                      toMenu:menu];
 
     [menu addItem:[NSMenuItem separatorItem]];
     [self addRefreshIntervalSubmenuToMenu:menu];
@@ -399,12 +404,13 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     if (![ok respondsToSelector:@selector(boolValue)] || ![ok boolValue]) {
         self.statusItem.button.toolTip = nil;
         self.statusItem.button.image = self.codexIcon;
-        self.statusItem.button.title = @"--";
+        [self setStatusItemTitle:@"--"];
         return;
     }
 
     double metric = [self displayPercentForWidgetState:state];
-    NSString *timeText = [self timeTextForWidgetState:state];
+    BOOL hideTime = [[self timeMode] isEqualToString:TimeModeHidden];
+    NSString *timeText = hideTime ? @"" : [self timeTextForWidgetState:state];
 
     if ([[self displayMode] isEqualToString:DisplayModeBattery]) {
         double recommendedPercent = NAN;
@@ -412,7 +418,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
             recommendedPercent = [self recommendedPercentLeftForWidgetState:state];
         }
         self.statusItem.button.image = [self batteryIconForPercent:metric recommendedPercent:recommendedPercent];
-        self.statusItem.button.title = timeText;
+        [self setStatusItemTitle:timeText];
         self.statusItem.button.toolTip = isfinite(recommendedPercent) ? @"Contrast marker: on-pace usage target" : nil;
         return;
     }
@@ -420,15 +426,22 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     self.statusItem.button.toolTip = nil;
     self.statusItem.button.image = self.codexIcon;
     if (isnan(metric)) {
-        self.statusItem.button.title = timeText.length > 0 ? timeText : @"--";
+        [self setStatusItemTitle:timeText.length > 0 ? timeText : @"--"];
     } else {
+        NSString *metricText = [NSString stringWithFormat:@"%.0f%%", metric];
         NSString *metricLabel = [self metricLabel];
         if (metricLabel.length > 0) {
-            self.statusItem.button.title = [NSString stringWithFormat:@"%@ | %.0f%% %@", timeText, metric, metricLabel];
-        } else {
-            self.statusItem.button.title = [NSString stringWithFormat:@"%@ | %.0f%%", timeText, metric];
+            metricText = [NSString stringWithFormat:@"%@ %@", metricText, metricLabel];
         }
+        [self setStatusItemTitle:hideTime ? metricText : [NSString stringWithFormat:@"%@ | %@", timeText, metricText]];
     }
+}
+
+- (void)setStatusItemTitle:(NSString *)title {
+    self.statusItem.button.title = title ?: @"";
+    // Drop the title's reserved spacing when there is no text so the item
+    // shrinks to just its image.
+    self.statusItem.button.imagePosition = self.statusItem.button.title.length > 0 ? NSImageLeft : NSImageOnly;
 }
 
 - (NSString *)detailUsageTextForState:(NSDictionary *)state {
@@ -679,6 +692,12 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 
 - (void)useCountdownTime {
     [NSUserDefaults.standardUserDefaults setObject:TimeModeCountdown forKey:TimeModeKey];
+    [self updateStatusItem];
+    self.statusItem.menu = [self menuForCurrentState];
+}
+
+- (void)useHiddenTime {
+    [NSUserDefaults.standardUserDefaults setObject:TimeModeHidden forKey:TimeModeKey];
     [self updateStatusItem];
     self.statusItem.menu = [self menuForCurrentState];
 }
