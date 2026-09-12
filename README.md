@@ -17,7 +17,7 @@ Click the menu-bar item to choose:
 
 - Percentage or battery display, including the on-pace marker explained above.
 - Percentage left or percentage used. The default is percentage left.
-- Reset clock time or a live countdown to reset.
+- Reset clock time, a live countdown to reset, or **Hide Time** to show only the icon and battery (or percentage) for a narrower menu-bar item.
 - Refresh interval: 30 seconds, 1 minute, 3 minutes, or 5 minutes.
 - Automatic login startup and restart after exits, with a menu opt-out.
 
