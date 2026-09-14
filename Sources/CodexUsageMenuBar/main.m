@@ -1,5 +1,6 @@
 #import "PersistentStartup.h"
 #import "UsagePace.h"
+#import "CodexUpdater.h"
 #import <Cocoa/Cocoa.h>
 #import <ServiceManagement/ServiceManagement.h>
 #import <math.h>
@@ -28,6 +29,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 @property(nonatomic, strong) NSDictionary *latestState;
 @property(nonatomic, strong) NSImage *codexIcon;
 @property(nonatomic, copy) NSString *launchAtLoginError;
+@property(nonatomic, assign) BOOL checkingForUpdates;
 @end
 
 @implementation AppDelegate
@@ -353,6 +355,13 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
                                               keyEquivalent:@"r"];
     refresh.target = self;
     [menu addItem:refresh];
+
+    NSMenuItem *updates = [[NSMenuItem alloc] initWithTitle:self.checkingForUpdates ? @"Checking for Updates…" : @"Check for Updates"
+                                                     action:@selector(checkForUpdates)
+                                              keyEquivalent:@"u"];
+    updates.target = self;
+    updates.enabled = !self.checkingForUpdates;
+    [menu addItem:updates];
 
     NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:@"Quit"
                                                   action:@selector(quit)
@@ -1494,6 +1503,82 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
     [NSApp terminate:nil];
 }
 
+- (NSAlert *)alertWithTitle:(NSString *)title message:(NSString *)message {
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = title ?: @"";
+    alert.informativeText = message ?: @"";
+    alert.alertStyle = NSAlertStyleInformational;
+    return alert;
+}
+
+- (void)checkForUpdates {
+    if (self.checkingForUpdates) return;
+    self.checkingForUpdates = YES;
+    self.statusItem.menu = [self menuForCurrentState];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSDictionary *update = CodexCheckForUpdates();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.checkingForUpdates = NO;
+            self.statusItem.menu = [self menuForCurrentState];
+            [self handleUpdateCheckResult:update];
+        });
+    });
+}
+
+- (void)handleUpdateCheckResult:(NSDictionary *)update {
+    [NSApp activateIgnoringOtherApps:YES];
+    if (![update[@"ok"] boolValue]) {
+        NSAlert *alert = [self alertWithTitle:@"Could not check for updates"
+                                      message:update[@"error"] ?: @"The GitHub remote could not be reached."];
+        [alert addButtonWithTitle:@"OK"];
+        [alert runModal];
+        return;
+    }
+    if (![update[@"updateAvailable"] boolValue]) {
+        NSString *sha = CodexShortGitSHA(update[@"remoteSHA"] ?: update[@"currentSHA"]);
+        NSAlert *alert = [self alertWithTitle:@"No updates"
+                                      message:sha.length ? [NSString stringWithFormat:@"You're on the latest main commit (%@).", sha]
+                                                         : @"You're on the latest main commit."];
+        [alert addButtonWithTitle:@"OK"];
+        [alert runModal];
+        return;
+    }
+    NSAlert *alert = [self alertWithTitle:@"Update?" message:CodexUpdatePromptText(update)];
+    [alert addButtonWithTitle:@"Yes"];
+    [alert addButtonWithTitle:@"No"];
+    if ([alert runModal] == NSAlertFirstButtonReturn) [self applyUpdate];
+}
+
+- (void)applyUpdate {
+    self.checkingForUpdates = YES;
+    self.statusItem.menu = [self menuForCurrentState];
+    NSString *installPath = NSBundle.mainBundle.bundlePath;
+    if (![installPath.pathExtension isEqual:@"app"]) installPath = [NSHomeDirectory() stringByAppendingPathComponent:@"Applications/Codex Usage Menu Bar.app"];
+    NSError *pauseError = nil;
+    [self.startup pause:&pauseError];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSError *error = nil;
+        NSDictionary *result = CodexApplyGitPullAndRebuild(installPath, &error);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.checkingForUpdates = NO;
+            self.statusItem.menu = [self menuForCurrentState];
+            if (![result[@"ok"] boolValue]) {
+                NSAlert *alert = [self alertWithTitle:@"Update failed" message:result[@"error"] ?: error.localizedDescription ?: @"Unknown error"];
+                [alert addButtonWithTitle:@"OK"];
+                [alert runModal];
+                [self ensureLaunchAtLoginIfPreferred];
+                return;
+            }
+            NSString *appPath = result[@"appPath"] ?: installPath;
+            NSTask *open = [NSTask new];
+            open.executableURL = [NSURL fileURLWithPath:@"/usr/bin/open"];
+            open.arguments = @[@"-g", @"-n", appPath];
+            [open launch];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [NSApp terminate:nil]; });
+        });
+    });
+}
+
 @end
 
 int main(int argc, const char *argv[]) {
@@ -1510,6 +1595,12 @@ int main(int argc, const char *argv[]) {
         if (argc > 1 && strcmp(argv[1], "--launch-at-login-status") == 0) {
             printf("%s\n", [[AppDelegate new] launchAtLoginStatusText].UTF8String);
             return 0;
+        }
+        if (argc > 1 && strcmp(argv[1], "--check-updates") == 0) {
+            NSDictionary *update = CodexCheckForUpdates();
+            NSData *data = [NSJSONSerialization dataWithJSONObject:update options:NSJSONWritingPrettyPrinted error:nil];
+            if (data) { fwrite(data.bytes, 1, data.length, stdout); fputc('\n', stdout); }
+            return [update[@"ok"] boolValue] ? 0 : 1;
         }
         NSApplication *app = [NSApplication sharedApplication];
         AppDelegate *delegate = [[AppDelegate alloc] init];

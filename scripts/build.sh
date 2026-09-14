@@ -5,6 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="Codex Usage Menu Bar"
 BUNDLE_ID="com.local.codex-usage-menu-bar"
 VERSION="${VERSION:-0.1.0}"
+GIT_COMMIT="${GIT_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)}"
+GIT_REMOTE="${GIT_REMOTE:-$(git -C "$ROOT_DIR" remote get-url origin 2>/dev/null || true)}"
+GIT_COMMIT="${GIT_COMMIT:-unknown}"
+GIT_REMOTE="${GIT_REMOTE:-https://github.com/diegocp01/top_bar_codex_credits.git}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/.build/release}"
 APP_DIR="$OUT_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
@@ -71,6 +75,10 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <true/>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>CodexGitCommit</key>
+  <string>$GIT_COMMIT</string>
+  <key>CodexGitRemote</key>
+  <string>$GIT_REMOTE</string>
 </dict>
 </plist>
 PLIST
