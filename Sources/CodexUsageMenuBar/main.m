@@ -1,3 +1,4 @@
+#import "CodexCLIPath.h"
 #import "PersistentStartup.h"
 #import "UsagePace.h"
 #import "CodexUpdater.h"
@@ -30,6 +31,7 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 @property(nonatomic, strong) NSImage *codexIcon;
 @property(nonatomic, copy) NSString *launchAtLoginError;
 @property(nonatomic, assign) BOOL checkingForUpdates;
+- (NSDictionary *)loadUsageState;
 @end
 
 @implementation AppDelegate
@@ -278,6 +280,11 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 
     if ([state[@"source_summary"] isKindOfClass:[NSString class]]) {
         [self addDisabledItem:state[@"source_summary"] toMenu:menu];
+    }
+    if ([state[@"live_error"] isKindOfClass:[NSString class]]) {
+        NSString *reason = [state[@"live_error"] isEqualToString:@"Codex CLI not found"]
+            ? @"Codex CLI not found" : @"Codex app-server unavailable";
+        [self addDisabledItem:[NSString stringWithFormat:@"Live refresh unavailable: %@", reason] toMenu:menu];
     }
     if (self.launchAtLoginError.length > 0) {
         [self addDisabledItem:[NSString stringWithFormat:@"Login item: %@", self.launchAtLoginError] toMenu:menu];
@@ -959,24 +966,8 @@ static NSTimeInterval const DefaultRefreshIntervalSeconds = 300.0;
 
 - (NSString *)codexCLIPath {
     NSString *override = NSProcessInfo.processInfo.environment[@"CODEX_CLI"];
-    if (override.length > 0) {
-        return override;
-    }
-
-    NSMutableArray<NSString *> *candidates = [NSMutableArray array];
-    for (NSString *directory in [self codexAppResourceDirectories]) {
-        [candidates addObject:[directory stringByAppendingPathComponent:@"codex"]];
-    }
-    [candidates addObjectsFromArray:@[
-        @"/opt/homebrew/bin/codex",
-        @"/usr/local/bin/codex"
-    ]];
-    for (NSString *path in candidates) {
-        if ([NSFileManager.defaultManager isExecutableFileAtPath:path]) {
-            return path;
-        }
-    }
-    return nil;
+    return CodexCLIExecutablePath(override, NSHomeDirectory(),
+                                  [self codexAppResourceDirectories], NSFileManager.defaultManager);
 }
 
 - (NSDictionary *)jsonRPCResponseWithId:(NSString *)requestId fromData:(NSData *)data {
@@ -1601,6 +1592,13 @@ int main(int argc, const char *argv[]) {
             NSData *data = [NSJSONSerialization dataWithJSONObject:update options:NSJSONWritingPrettyPrinted error:nil];
             if (data) { fwrite(data.bytes, 1, data.length, stdout); fputc('\n', stdout); }
             return [update[@"ok"] boolValue] ? 0 : 1;
+        }
+        if (argc > 1 && strcmp(argv[1], "--probe-usage") == 0) {
+            NSDictionary *state = [[AppDelegate new] loadUsageState];
+            NSString *source = state[@"source_summary"];
+            BOOL live = [source hasPrefix:@"Source: Codex app-server"];
+            printf("%s\n", live ? "live" : [source hasPrefix:@"Source: Offline JSONL"] ? "offline" : "unavailable");
+            return live ? 0 : 1;
         }
         NSApplication *app = [NSApplication sharedApplication];
         AppDelegate *delegate = [[AppDelegate alloc] init];
