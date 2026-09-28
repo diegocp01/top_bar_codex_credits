@@ -9,5 +9,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: ./scripts/test-startup.sh
       - run: ./scripts/test-pace.sh
+      - run: ./scripts/test-cli-path.sh
       - run: ./scripts/test-updater.sh
       - run: ./scripts/build.sh
